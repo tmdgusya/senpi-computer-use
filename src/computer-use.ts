@@ -165,8 +165,14 @@ export function createComputerUseTool(deps: ComputerUseDeps): ToolDefinition<typ
 				return assembleCaptureResult(params.action, result.text, result.structuredContent, wantImage ? result.images : [], status);
 			}
 
+			// Prefer structured window records so the model reliably gets pid/window_id.
+			const text =
+				params.action === "windows" && hasStructuredContent(result.structuredContent)
+					? JSON.stringify(result.structuredContent)
+					: result.text || `${invocation.tool} ok`;
+
 			return {
-				content: [{ type: "text", text: boundedText(result.text || `${invocation.tool} ok`) }],
+				content: [{ type: "text", text: boundedText(text) }],
 				details: {
 					action: params.action,
 					ok: true,
@@ -177,6 +183,10 @@ export function createComputerUseTool(deps: ComputerUseDeps): ToolDefinition<typ
 			};
 		},
 	};
+}
+
+function hasStructuredContent(value: unknown): boolean {
+	return typeof value === "object" && value !== null && Object.keys(value).length > 0;
 }
 
 function modelAcceptsImages(ctx: ExtensionContext): boolean {

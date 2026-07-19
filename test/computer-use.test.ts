@@ -74,11 +74,14 @@ describe("computer_use — status / doctor (C6)", () => {
 describe("computer_use — read-only actions", () => {
 	it("lists windows through the MCP list_windows tool with the session id", async () => {
 		const { tool, call } = build();
+		call.mockResolvedValueOnce(okResult({ text: "Found 1 windows:", structuredContent: { windows: [{ pid: 7, window_id: 9 }] } }));
 
 		const result = await tool.execute("w", { action: "windows" }, undefined, undefined, tuiCtx);
 
 		expect(call).toHaveBeenCalledWith("list_windows", { session: "senpi-test-session" }, expect.objectContaining({ mutating: false }));
 		expect(result.details).toMatchObject({ action: "windows", ok: true });
+		// Structured window records are preferred so the model reliably gets pid/window_id.
+		expect((result.content[0] as { text: string }).text).toContain('"window_id":9');
 	});
 
 	it("captures a window via get_window_state without a screenshot when the model is text-only (C4)", async () => {
