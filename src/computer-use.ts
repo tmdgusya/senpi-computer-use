@@ -1,13 +1,16 @@
 import type { ExtensionContext, ToolDefinition } from "@code-yeongyu/senpi";
 
 import {
+	type ActionName,
 	checkHardBlocks,
 	describeMutation,
 	isMutatingAction,
 	PARAMETERS,
 	type Parameters,
+	type RawParameters,
 	SAFETY_POLICY_VERSION,
 	toDriverInvocation,
+	validateActionParams,
 } from "./actions.js";
 import { runDoctorPreflight, renderCapabilityReport, type CapabilityReport } from "./doctor.js";
 import { boundedText, MAX_ELEMENTS, MAX_IMAGE_BYTES, MAX_TEXT_BYTES } from "./environment.js";
@@ -24,7 +27,7 @@ export type FailureReason =
 	| "aborted";
 
 export interface Details {
-	action: Parameters["action"];
+	action: ActionName;
 	ok: boolean;
 	reason?: FailureReason;
 	detail?: string;
@@ -57,7 +60,7 @@ export function createComputerUseTool(deps: ComputerUseDeps): ToolDefinition<typ
 	/** Generation of the proxy at the time of the last successful capture (stale-reference guard, plan section 6). */
 	let lastCaptureGeneration: number | undefined;
 
-	const fail = (action: Parameters["action"], reason: FailureReason, detail: string): ResultShape => ({
+	const fail = (action: ActionName, reason: FailureReason, detail: string): ResultShape => ({
 		content: [{ type: "text", text: boundedText(detail) }],
 		details: { action, ok: false, reason, detail: boundedText(detail, 512), policyVersion: SAFETY_POLICY_VERSION },
 	});
@@ -75,7 +78,13 @@ export function createComputerUseTool(deps: ComputerUseDeps): ToolDefinition<typ
 		],
 		parameters: PARAMETERS,
 		executionMode: "sequential",
-		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+		async execute(_toolCallId, raw, signal, _onUpdate, ctx) {
+			const validation = validateActionParams(raw);
+			if (!validation.ok) {
+				return fail(raw.action, "driver_failed", `computer_use ${raw.action}: ${validation.error}`);
+			}
+			const params: Parameters = validation.params;
+
 			// Extension-local actions first.
 			if (params.action === "status") {
 				const report = await doctor(deps.proxyStatus());
