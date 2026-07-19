@@ -69,12 +69,12 @@ export function createComputerUseTool(deps: ComputerUseDeps): ToolDefinition<typ
 		name: "computer_use",
 		label: "Computer Use",
 		description:
-			"Control the local desktop through cua-driver: inspect readiness (status), list windows, capture a window's accessibility elements (and a screenshot when the model accepts images), then act on captured elements (click/type/key/...). Every state-changing action requires explicit per-call user approval and is denied in non-interactive modes.",
+			"Control the local desktop through cua-driver: inspect readiness (status), list windows, capture a window's accessibility elements (and a screenshot when the model accepts images), then act on captured elements (click/type/key/...). State-changing actions are auto-approved in interactive mode and denied in non-interactive modes.",
 		promptSnippet:
 			"Desktop control: computer_use(action: status|windows|capture|click|type|...). Capture before acting; element indexes expire when the capture generation changes.",
 		promptGuidelines: [
 			"Use computer_use(action: capture, pid: ...) to read a window before clicking or typing into it; prefer elementIndex targets over raw coordinates.",
-			"State-changing computer_use actions prompt the user for approval on every call; do not retry a rejected action without new user intent.",
+			"State-changing computer_use actions run without prompting; hard-blocked combos (e.g. ctrl+alt+delete) are still refused.",
 		],
 		parameters: PARAMETERS,
 		executionMode: "sequential",
@@ -120,9 +120,12 @@ export function createComputerUseTool(deps: ComputerUseDeps): ToolDefinition<typ
 						`computer_use ${params.action} requires interactive approval and is denied in ${ctx.mode} mode.`,
 					);
 				}
-				const approved = await ctx.ui.confirm("Allow computer action?", `Allow once: ${describeMutation(params)}`);
-				if (!approved) {
-					return fail(params.action, "user_rejected", `computer_use ${params.action} was rejected by the user.`);
+				// Auto-approve by default (owner preference); set SENPI_CUA_REQUIRE_APPROVAL=1 to restore per-call prompts.
+				if (process.env.SENPI_CUA_REQUIRE_APPROVAL === "1") {
+					const approved = await ctx.ui.confirm("Allow computer action?", `Allow once: ${describeMutation(params)}`);
+					if (!approved) {
+						return fail(params.action, "user_rejected", `computer_use ${params.action} was rejected by the user.`);
+					}
 				}
 				// Stale-reference guard: element indexes are only valid for the generation they were captured in.
 				if ("elementIndex" in params && params.elementIndex !== undefined) {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createComputerUseTool, isValidImage, type ComputerUseDeps } from "../src/computer-use.js";
 import type { CapabilityReport } from "../src/doctor.js";
@@ -130,6 +130,10 @@ describe("computer_use — read-only actions", () => {
 });
 
 describe("computer_use — safety gate (SS10)", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
 	it("denies a mutating action in non-tui mode before any driver call", async () => {
 		const { tool, call } = build();
 		const printCtx = { mode: "print", ui: { confirm: vi.fn(async () => true) }, model: { input: ["text"] } } as never;
@@ -140,7 +144,25 @@ describe("computer_use — safety gate (SS10)", () => {
 		expect(result.details).toMatchObject({ action: "click", ok: false, reason: "interactive_approval_required" });
 	});
 
+	it("auto-approves mutating actions by default without prompting", async () => {
+		const confirm = vi.fn(async () => true);
+		const ctx = { mode: "tui", ui: { confirm }, model: { input: ["text"] } } as never;
+		const { tool, call } = build();
+		call.mockResolvedValueOnce(okResult({ text: '{"verified":true}' }));
+
+		const result = await tool.execute("k", { action: "click", pid: 42, windowId: 99, elementIndex: 3 }, undefined, undefined, ctx);
+
+		expect(confirm).not.toHaveBeenCalled();
+		expect(call).toHaveBeenCalledWith(
+			"click",
+			{ pid: 42, window_id: 99, element_index: 3, session: "senpi-test-session" },
+			expect.objectContaining({ mutating: true }),
+		);
+		expect(result.details).toMatchObject({ action: "click", ok: true });
+	});
+
 	it("requires allow-once approval and dispatches click via the MCP click tool", async () => {
+		vi.stubEnv("SENPI_CUA_REQUIRE_APPROVAL", "1");
 		const confirm = vi.fn(async () => true);
 		const ctx = { mode: "tui", ui: { confirm }, model: { input: ["text"] } } as never;
 		const { tool, call } = build();
@@ -158,6 +180,7 @@ describe("computer_use — safety gate (SS10)", () => {
 	});
 
 	it("records user_rejected — distinct from the no-UI denial — when approval is declined", async () => {
+		vi.stubEnv("SENPI_CUA_REQUIRE_APPROVAL", "1");
 		const confirm = vi.fn(async () => false);
 		const ctx = { mode: "tui", ui: { confirm }, model: { input: ["text"] } } as never;
 		const { tool, call } = build();
